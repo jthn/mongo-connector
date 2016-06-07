@@ -53,28 +53,6 @@ class DocManager(DocManagerBase):
         """ Verify URL and establish a connection.
         """
 
-        def _clean_document(self, values):
-            for key, value in values.iteritems():
-                if isinstance(value, dict):
-                    values[key] = self._clean_document(self, value)
-                elif '.' in key:
-                    cleaned = key.replace(".", "\uff1e")
-                    values[cleaned] = values.pop(key)
-                    LOG.debug("Cleaned key: %s to %s" % (key, cleaned))
-            return values
-
-        def replace_one_without_check_keys(self, filter, replacement, upsert=False,
-                bypass_document_validation=False):
-
-            replacement = _clean_document(replacement)
-
-            with self._socket_for_writes() as sock_info:
-                result = self._update(sock_info, filter, replacement, upsert,
-                        check_keys=False, bypass_doc_val=bypass_document_validation)
-                return pymongo.results.UpdateResult(result, self.write_concern.acknowledged)
-
-        pymongo.collection.Collection.replace_one_without_check_keys = replace_one_without_check_keys
-
         try:
             self.mongo = pymongo.MongoClient(
                 url, **kwargs.get('clientOptions', {}))
@@ -121,6 +99,16 @@ class DocManager(DocManagerBase):
             return self.meta_collection_name
         else:
             return namespace
+
+    def _clean_document(self, values):
+        for key, value in values.iteritems():
+            if isinstance(value, dict):
+                values[key] = self._clean_document(value)
+            elif '.' in key:
+                cleaned = key.replace(".", "\uff1e")
+                values[cleaned] = values.pop(key)
+                LOG.debug("Cleaned key: %s to %s" % (key, cleaned))
+        return values
 
     @wrap_exceptions
     def _namespaces(self):
@@ -187,7 +175,7 @@ class DocManager(DocManagerBase):
 
         meta_collection_name = self._get_meta_collection(namespace)
 
-        self.meta_database[meta_collection_name].replace_one_without_check_keys(
+        self.meta_database[meta_collection_name].replace_one(
             {self.id_field: document_id, "ns": namespace},
             {self.id_field: document_id,
              "_ts": timestamp,
@@ -211,16 +199,16 @@ class DocManager(DocManagerBase):
 
         meta_collection_name = self._get_meta_collection(namespace)
 
-        self.meta_database[meta_collection_name].replace_one_without_check_keys(
+        self.meta_database[meta_collection_name].replace_one(
             {self.id_field: doc['_id'], "ns": namespace},
             {self.id_field: doc['_id'],
              "_ts": timestamp,
              "ns": namespace},
              upsert=True)
 
-        self.mongo[database][coll].replace_one_without_check_keys(
+        self.mongo[database][coll].replace_one(
             {'_id': doc['_id']},
-            doc,
+            self._clean_document(doc),
             upsert=True)
 
     @wrap_exceptions
@@ -237,7 +225,7 @@ class DocManager(DocManagerBase):
                 for i in range(self.chunk_size):
                     try:
                         doc = next(docs)
-                        doc = _clean_document(doc)
+                        doc = self._clean_document(doc)
                         selector = {'_id': doc['_id']}
                         bulk.find(selector).upsert().replace_one(doc)
                         meta_selector = {self.id_field: doc['_id']}
@@ -291,7 +279,7 @@ class DocManager(DocManagerBase):
 
         meta_collection = self._get_meta_collection(namespace)
 
-        self.meta_database[meta_collection].replace_one_without_check_keys(
+        self.meta_database[meta_collection].replace_one(
             {self.id_field: f._id, "ns": namespace},
             {self.id_field: f._id, '_ts': timestamp,
              'ns': namespace, 'gridfs_id': id},
