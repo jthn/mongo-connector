@@ -53,10 +53,10 @@ class DocManager(DocManagerBase):
         """ Verify URL and establish a connection.
         """
 
-        def _clean_document(values):
+        def _clean_document(self, values):
             for key, value in values.iteritems():
                 if isinstance(value, dict):
-                    values[key] = clean(value)
+                    values[key] = self._clean_document(self, value)
                 elif '.' in key:
                     cleaned = key.replace(".", "\uff1e")
                     values[cleaned] = values.pop(key)
